@@ -45,6 +45,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Extension.fs" />
+    <Compile Include="Measure.fs" />
     <Compile Include="BirthCount.fs" />
     <Compile Include="Birthday.fs" />
     <Compile Include="Program.fs" />

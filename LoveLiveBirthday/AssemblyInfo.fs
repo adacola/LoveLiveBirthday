@@ -1,4 +1,4 @@
-﻿namespace LoveLiveBirthday.AssemblyInfo
+namespace Adacola.LoveLiveBirthday.AssemblyInfo
 
 open System.Reflection
 open System.Runtime.CompilerServices

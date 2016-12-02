@@ -2,15 +2,42 @@ module Adacola.LoveLiveBirthday.BirthCount
 
 open System
 open System.Text.RegularExpressions
+open Basis.Core
 
-/// e-Stat‚ÌulŒû“®‘Ô“Œv Šm’è” •ÛŠÇ“Œv•\i•ñ‘”ñŒfÚ•\j o¶v‚Ì”NŸˆê——ƒy[ƒW‚©‚ç–Ú“I‚Ì”NŸ‚Ìƒy[ƒW‚ÌURI‚ğæ“¾
-let tryGetYearUri (baseUri : Uri) content year =
-    match Regex.Match(content, sprintf """<a\s+href="(?<uri>[^"]+)"[^>]*>\s*%d”N\s*</a>""" year, RegexOptions.Singleline) with
+/// e-Statã®ã€Œäººå£å‹•æ…‹çµ±è¨ˆ ç¢ºå®šæ•° ä¿ç®¡çµ±è¨ˆè¡¨ï¼ˆå ±å‘Šæ›¸éæ²è¼‰è¡¨ï¼‰ å‡ºç”Ÿã€ã®å¹´æ¬¡ä¸€è¦§ãƒšãƒ¼ã‚¸ã‹ã‚‰ç›®çš„ã®å¹´æ¬¡ã®ãƒšãƒ¼ã‚¸ã®URIã‚’å–å¾—
+let tryGetYearUri (baseUri : Uri) content (year : int<å¹´>) =
+    match Regex.Match(content, sprintf """<a\s+href="(?<uri>[^"]+)"[^>]*>\s*%då¹´\s*</a>""" year, RegexOptions.Singleline) with
     | m when m.Success -> Uri(baseUri, m.Groups.["uri"].Value) |> Some
     | _ -> None
 
-/// e-Stat‚ÌulŒû“®‘Ô“Œv Šm’è” •ÛŠÇ“Œv•\i•ñ‘”ñŒfÚ•\j o¶v‚Ì”NŸƒy[ƒW‚©‚ço¶”NŒ“ú‚ÌCSV‚ÌURI‚ğæ“¾
+/// e-Statã®ã€Œäººå£å‹•æ…‹çµ±è¨ˆ ç¢ºå®šæ•° ä¿ç®¡çµ±è¨ˆè¡¨ï¼ˆå ±å‘Šæ›¸éæ²è¼‰è¡¨ï¼‰ å‡ºç”Ÿã€ã®å¹´æ¬¡ãƒšãƒ¼ã‚¸ã‹ã‚‰å‡ºç”Ÿå¹´æœˆæ—¥æ™‚ã®CSVã®URIã‚’å–å¾—
 let tryGetDataUri (baseUri : Uri) content =
-    match Regex.Match(content, """o¶”Co¶”NŒ“úEo¶‚ÌêŠ•Ê.*?<a\s+href="(?<uri>[^"]+)"[^>]*>""", RegexOptions.Singleline) with
+    match Regex.Match(content, """å‡ºç”Ÿæ•°ï¼Œå‡ºç”Ÿå¹´æœˆæ—¥æ™‚ãƒ»å‡ºç”Ÿã®å ´æ‰€åˆ¥.*?<a\s+href="(?<uri>[^"]+)"[^>]*>""", RegexOptions.Singleline) with
     | m when m.Success -> Uri(baseUri, m.Groups.["uri"].Value) |> Some
     | _ -> None
+
+/// å‡ºç”Ÿå¹´æœˆæ—¥æ™‚ã®CSVã‹ã‚‰å‡ºç”Ÿå¹´æœˆæ—¥ã”ã¨ã®èª•ç”Ÿæ•°ã®é…åˆ—
+let tryGetBirthCounts (content : string) =
+    let rows = content.Split([|"\r\n"; "\n"; "\r"|], StringSplitOptions.None) |> Array.map (Str.splitBy ",")
+    let tryGetDayBirthCount index =
+        if Regex.IsMatch(rows.[index].[0], @"\A.+æ—¥\z") then
+            rows.[index].[1] |> Int32.TryParse |> Option.ofTryByref
+        else None
+    let tryGetMonthBirthCounts monthIndex =
+        Option.execute <| fun () ->
+            monthIndex |> Seq.unfold (fun index ->
+                tryGetDayBirthCount index |> Option.map (fun count -> count, index + 1))
+            |> Seq.toArray
+    let monthIndices = [|38; 71; 104; 137; 170; 203; 236; 269; 302; 335; 368; 401|]
+    option {
+        let! birthCountsTable = monthIndices |> Array.map tryGetMonthBirthCounts |> Array.validate
+        // ã†ã‚‹ã†å¹´å¯¾å¿œã€‚2/29ã®åˆ†ã¯3/1ã«åŠ ç®—
+        let result =
+            if birthCountsTable.[1].Length = 29 then
+                birthCountsTable |> Array.mapi (flip (fun xs -> function
+                    | 1 -> xs.[.. 27]
+                    | 2 -> Array.append [|xs.[0] + birthCountsTable.[1].[28]|] xs.[1 ..]
+                    | _ -> xs))
+            else birthCountsTable
+        return result |> Seq.concat |> Seq.toList
+    }
