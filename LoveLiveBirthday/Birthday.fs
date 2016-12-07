@@ -1,8 +1,6 @@
-module Adacola.LoveLiveBirthday.Birthday
+﻿module Adacola.LoveLiveBirthday.Birthday
 
-open MathNet.Numerics.Random
-
-let private random = Random.mersenneTwister()
+open System
 
 let getRandomBirthday (BirthCount.BirthCount birthCounts) =
     let sumOfBirthCount = birthCounts |> Array.sum
@@ -12,15 +10,19 @@ let getRandomBirthday (BirthCount.BirthCount birthCounts) =
         match System.Array.BinarySearch(integralBirthCounts, n) with
         | i when i < 0 -> ~~~i
         | i -> i
-    fun () -> random.Next(sumOfBirthCount) |> searchIndex
+    fun (random : Random) ->
+        let result = random.Next(sumOfBirthCount) |> searchIndex
+        result, random
 
 let getDuplicatedCount xs = xs |> List.distinct |> List.length |> (-) xs.Length
 
-let generateActorRandomBirthdays getRandomBirthday memberCount =
-    [for _ in 1 .. memberCount -> getRandomBirthday()]
+let generateActorRandomBirthdays getRandomBirthday (random : Random) memberCount =
+    (random, [1 .. memberCount]) ||> List.mapFold (fun random _ -> getRandomBirthday random)
     
-let generateCharactorRandomBirthdays getRandomBirthday memberCount birthdays =
-    set birthdays |> Seq.unfold (fun birthdays ->
-        let birthday = getRandomBirthday()
-        if Set.contains birthday birthdays then Some(None, birthdays) else Some(Some birthday, Set.add birthday birthdays))
-    |> Seq.choose id |> Seq.take memberCount |> Seq.toList
+let generateCharactorRandomBirthdays getRandomBirthday (random : Random) memberCount birthdays =
+    let rec loop results birthdays random =
+        if memberCount <= List.length results then results, random else
+        let result, random = getRandomBirthday random
+        if Set.contains result birthdays then loop results birthdays random
+        else loop (result::results) (Set.add result birthdays) random
+    loop [] (set birthdays) random

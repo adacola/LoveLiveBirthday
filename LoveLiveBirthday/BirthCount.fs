@@ -1,4 +1,4 @@
-module Adacola.LoveLiveBirthday.BirthCount
+﻿module Adacola.LoveLiveBirthday.BirthCount
 
 open System
 open System.Text
@@ -16,8 +16,10 @@ type BirthCount = BirthCount of int[]
 
 let private tryDownload encoding toDestination (uri : Uri) =
     try
+        printfn "%s をダウンロードします" uri.AbsoluteUri
         use client = new WebClient(Encoding = encoding)
         let content = client.DownloadString(uri)
+        Threading.Thread.Sleep 1000
         content |> toDestination |> Success
     with e -> Failure e
 
@@ -92,6 +94,7 @@ let tryGetBirthCountOfAcademicYear yearContentUri cache (academicYear : int<年�
         let secondYear = firstYear + 1<年>
         let! (BirthCount firstBirthCount), cache = tryGetBirthCount yearContentUri cache firstYear
         let! (BirthCount secondBirthCount), cache = tryGetBirthCount yearContentUri cache secondYear
+        // 4月2日～翌年の4月1日まで
         let result = Array.append secondBirthCount.[.. 90] firstBirthCount.[91 ..] |> BirthCount
         return result, cache
     }
@@ -100,3 +103,16 @@ let sumBirthCounts birthCounts =
     let add2BirthCounts (BirthCount birthCounts1) (BirthCount birthCounts2) =
         (birthCounts1, birthCounts2) ||> Array.map2 (+) |> BirthCount
     birthCounts |> Seq.reduce add2BirthCounts
+
+let uniformBirthCount = Array.replicate 365 1 |> BirthCount
+
+let tryGetAllBirthCounts yearContentUri years =
+    let birthCountResults, cache =
+        (Map.empty, years) ||> Seq.mapFold (fun cache year ->
+            match tryGetBirthCount yearContentUri cache year with
+            | Success(result, cache) -> Success result, cache
+            | Failure e -> Failure e, cache)
+    let cachedBirthCountResults = birthCountResults |> Seq.cache
+    cachedBirthCountResults |> Seq.tryPick Result.toOptionFailure |> Option.map Failure |> Option.getOrElse (fun () ->
+        let result = cachedBirthCountResults |> Seq.map Result.get |> sumBirthCounts
+        Success(result, cache))

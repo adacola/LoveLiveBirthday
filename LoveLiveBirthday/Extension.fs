@@ -1,4 +1,4 @@
-namespace Adacola.LoveLiveBirthday
+﻿namespace Adacola.LoveLiveBirthday
 
 open Basis.Core
 

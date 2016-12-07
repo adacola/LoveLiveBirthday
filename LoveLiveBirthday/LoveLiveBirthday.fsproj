@@ -49,6 +49,7 @@
     <Compile Include="Measure.fs" />
     <Compile Include="BirthCount.fs" />
     <Compile Include="Birthday.fs" />
+    <Compile Include="LoveLive.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="paket.references" />
