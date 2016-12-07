@@ -32,25 +32,36 @@ let main args =
         |> Uri |> BirthCount.YearContentUri
 
     let random = maybeSeed |> Option.map Random.mersenneTwisterSeed |> Option.getOrElse Random.mersenneTwister
-    let getBirthday cache year =
+    let getBirthday lazyYearContent cache year =
         result {
+            let! yearContent = lazyYearContent |> Lazy.value
             let! birthCount, cache =
                 if isUniform then Success(BirthCount.uniformBirthCount, cache)
-                else BirthCount.tryGetBirthCountOfAcademicYear yearContentUri cache year
+                else BirthCount.tryGetBirthCountOfAcademicYear yearContentUri yearContent cache year
             return Birthday.getRandomBirthday birthCount, cache
+        }
+    let getAllBirthCount lazyYearContent allYears =
+        result {
+            if isUniform then
+                let birthCount = BirthCount.uniformBirthCount
+                return Birthday.getRandomBirthday birthCount, Map.empty
+            else
+                let! yearContent = lazyYearContent |> Lazy.value
+                let! allBirthCount, cache = BirthCount.tryGetAllBirthCounts yearContentUri yearContent allYears
+                return Birthday.getRandomBirthday allBirthCount, cache
         }
 
     let func = 
         result {
-            let allYears = [for i in 1995 .. 2015 -> i * 1<年>]
-            let! allBirthCount, cache = BirthCount.tryGetAllBirthCounts yearContentUri allYears
-            let getActorBirthday = Birthday.getRandomBirthday (if isUniform then BirthCount.uniformBirthCount else allBirthCount)
-            let! getμ's1stGradeBirthday, cache = getBirthday cache LoveLive.μ's1stGradeYear
-            let! getμ's2ndGradeBirthday, cache = getBirthday cache LoveLive.μ's2ndGradeYear
-            let! getμ's3rdGradeBirthday, cache = getBirthday cache LoveLive.μ's3rdGradeYear
-            let! getAqours1stGradeBirthday, cache = getBirthday cache LoveLive.aqours1stGradeYear
-            let! getAqours2ndGradeBirthday, cache = getBirthday cache LoveLive.aqours2ndGradeYear
-            let! getAqours3rdGradeBirthday, _ = getBirthday cache LoveLive.aqours3rdGradeYear
+            let allYears = [for i in 1996 .. 2015 -> i * 1<年>]
+            let lazyYearContent = lazy(BirthCount.tryDownloadYearContent yearContentUri)
+            let! getActorBirthday, cache = getAllBirthCount lazyYearContent allYears
+            let! getμ's1stGradeBirthday, cache = getBirthday lazyYearContent cache LoveLive.μ's1stGradeYear
+            let! getμ's2ndGradeBirthday, cache = getBirthday lazyYearContent cache LoveLive.μ's2ndGradeYear
+            let! getμ's3rdGradeBirthday, cache = getBirthday lazyYearContent cache LoveLive.μ's3rdGradeYear
+            let! getAqours1stGradeBirthday, cache = getBirthday lazyYearContent cache LoveLive.aqours1stGradeYear
+            let! getAqours2ndGradeBirthday, cache = getBirthday lazyYearContent cache LoveLive.aqours2ndGradeYear
+            let! getAqours3rdGradeBirthday, _ = getBirthday lazyYearContent cache LoveLive.aqours3rdGradeYear
             return fun random -> 
                 let result, random =
                     LoveLive.getRandomBirthdays getActorBirthday getμ's1stGradeBirthday getμ's2ndGradeBirthday getμ's3rdGradeBirthday getActorBirthday getAqours1stGradeBirthday getAqours2ndGradeBirthday getAqours3rdGradeBirthday random

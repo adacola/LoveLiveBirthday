@@ -18,8 +18,9 @@ let private tryDownload encoding toDestination (uri : Uri) =
     try
         printfn "%s をダウンロードします" uri.AbsoluteUri
         use client = new WebClient(Encoding = encoding)
+        client.Headers.["User-Agent"] <- "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.99 Safari/537.36"
         let content = client.DownloadString(uri)
-        Threading.Thread.Sleep 1000
+        Threading.Thread.Sleep 2000
         content |> toDestination |> Success
     with e -> Failure e
 
@@ -37,7 +38,7 @@ let tryParseYearContent (YearContentUri baseUri) (YearContent content) (year : i
 
 /// e-Statの「人口動態統計 確定数 保管統計表（報告書非掲載表） 出生」の年次ページから出生年月日時のCSVのURIを取得
 let tryParseDataContent (DataContentUri baseUri) (DataContent content) =
-    match Regex.Match(content, """出生数，出生年月日時・出生の場所別.*?<a\s+href="(?<uri>[^"]+)"[^>]*>""", RegexOptions.Singleline) with
+    match Regex.Match(content, """出生数[、，]出生年月日時・出[生産]の場所別.*?<a\s+href="(?<uri>[^"]+)"[^>]*>""", RegexOptions.Singleline) with
     | m when m.Success -> Uri(baseUri, m.Groups.["uri"].Value) |> BirthCountContentUri |> Success
     | _ -> failureParsing baseUri.AbsoluteUri
 
@@ -69,9 +70,8 @@ let tryParseBirthCountContent (BirthCountContent content) =
         return result |> Array.concat |> BirthCount
     }
 
-let tryGetBirthCountForcibly yearContentUri year =
+let tryGetBirthCountForcibly yearContentUri yearContent year =
     result {
-        let! yearContent = tryDownloadYearContent yearContentUri
         let! dataContentUri = tryParseYearContent yearContentUri yearContent year
         let! dataContent = tryDownloadDataContent dataContentUri
         let! birthCountContentUri = tryParseDataContent dataContentUri dataContent
@@ -79,21 +79,21 @@ let tryGetBirthCountForcibly yearContentUri year =
         return! tryParseBirthCountContent birthCountContent
     }
 
-let tryGetBirthCount yearContentUri cache year =
+let tryGetBirthCount yearContentUri yearContent cache year =
     result {
         match cache |> Map.tryFind year with
         | Some result -> return result, cache
         | None ->
-            let! result = tryGetBirthCountForcibly yearContentUri year
+            let! result = tryGetBirthCountForcibly yearContentUri yearContent year
             return result, cache |> Map.add year result
     }
 
-let tryGetBirthCountOfAcademicYear yearContentUri cache (academicYear : int<年度>) =
+let tryGetBirthCountOfAcademicYear yearContentUri yearContent cache (academicYear : int<年度>) =
     result {
         let firstYear = academicYear * 1<年/年度>
         let secondYear = firstYear + 1<年>
-        let! (BirthCount firstBirthCount), cache = tryGetBirthCount yearContentUri cache firstYear
-        let! (BirthCount secondBirthCount), cache = tryGetBirthCount yearContentUri cache secondYear
+        let! (BirthCount firstBirthCount), cache = tryGetBirthCount yearContentUri yearContent cache firstYear
+        let! (BirthCount secondBirthCount), cache = tryGetBirthCount yearContentUri yearContent cache secondYear
         // 4月2日～翌年の4月1日まで
         let result = Array.append secondBirthCount.[.. 90] firstBirthCount.[91 ..] |> BirthCount
         return result, cache
@@ -106,10 +106,11 @@ let sumBirthCounts birthCounts =
 
 let uniformBirthCount = Array.replicate 365 1 |> BirthCount
 
-let tryGetAllBirthCounts yearContentUri years =
+let tryGetAllBirthCounts yearContentUri yearContent years =
     let birthCountResults, cache =
         (Map.empty, years) ||> Seq.mapFold (fun cache year ->
-            match tryGetBirthCount yearContentUri cache year with
+            printfn "%d年の処理" year
+            match tryGetBirthCount yearContentUri yearContent cache year with
             | Success(result, cache) -> Success result, cache
             | Failure e -> Failure e, cache)
     let cachedBirthCountResults = birthCountResults |> Seq.cache
