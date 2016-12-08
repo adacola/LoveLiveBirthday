@@ -20,6 +20,7 @@ let private tryDownload encoding toDestination (uri : Uri) =
         use client = new WebClient(Encoding = encoding)
         client.Headers.["User-Agent"] <- "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.99 Safari/537.36"
         let content = client.DownloadString(uri)
+        printfn "%s をダウンロードしました" uri.AbsoluteUri
         Threading.Thread.Sleep 2000
         content |> toDestination |> Success
     with e -> Failure e
@@ -42,9 +43,18 @@ let tryParseDataContent (DataContentUri baseUri) (DataContent content) =
     | m when m.Success -> Uri(baseUri, m.Groups.["uri"].Value) |> BirthCountContentUri |> Success
     | _ -> failureParsing baseUri.AbsoluteUri
 
-/// 出生年月日時のCSVから出生年月日ごとの誕生数の配列
+/// 出生年月日時のCSVから出生年月日ごとの誕生数を取得
 let tryParseBirthCountContent (BirthCountContent content) =
     let rows = content.Split([|"\r\n"; "\n"; "\r"|], StringSplitOptions.None) |> Array.map (Str.splitBy ",")
+    let tryGetNextMonth startIndex =
+        rows |> Seq.skip startIndex |> Seq.tryFindIndex (fun row -> Regex.IsMatch(row.[0], "\A総\s*数\z") && Regex.IsMatch(row.[1], "\A\d+\z"))
+        |> Option.map ((+) (startIndex + 1))
+    let tryGetMonthIndices() =
+        let indices =
+            0 |> Seq.unfold (tryGetNextMonth >> Option.map (fun i -> i, i))
+            |> Seq.truncate 13 |> Seq.skip 1 |> Seq.toArray
+        if indices.Length = 12 then Success indices
+        else sprintf "各月の出生数の総数が12あるのを期待していましたが、実際には%dでした" indices.Length |> exn |> Failure
     let tryGetDayBirthCount index =
         if Regex.IsMatch(rows.[index].[0], @"\A.+日\z") then
             rows.[index].[1] |> Int32.TryParse |> Option.ofTryByref
@@ -54,8 +64,11 @@ let tryParseBirthCountContent (BirthCountContent content) =
             monthIndex |> Seq.unfold (fun index ->
                 tryGetDayBirthCount index |> Option.map (fun count -> count, index + 1))
             |> Seq.toArray
-    let monthIndices = [|38; 71; 104; 137; 170; 203; 236; 269; 302; 335; 368; 401|]
+    let tryToBirthCount birthCount =
+        if Array.length birthCount = 365 then birthCount |> BirthCount |> Success
+        else sprintf "日の数は365を期待していましたが、実際には%dでした" birthCount.Length |> exn |> Failure
     result {
+        let! monthIndices = tryGetMonthIndices()
         let! birthCountsTable =
             monthIndices |> Array.map tryGetMonthBirthCounts |> Array.validate
             |> Option.map Success |> Option.getOrElse (fun () -> failureParsing "出生年月日時のCSV")
@@ -67,18 +80,22 @@ let tryParseBirthCountContent (BirthCountContent content) =
                     | 2 -> Array.append [|xs.[0] + birthCountsTable.[1].[28]|] xs.[1 ..]
                     | _ -> xs))
             else birthCountsTable
-        return result |> Array.concat |> BirthCount
+        return! result |> Array.concat |> tryToBirthCount
     }
 
+/// 指定された年の誕生数をe-Statから取得
 let tryGetBirthCountForcibly yearContentUri yearContent year =
     result {
         let! dataContentUri = tryParseYearContent yearContentUri yearContent year
         let! dataContent = tryDownloadDataContent dataContentUri
         let! birthCountContentUri = tryParseDataContent dataContentUri dataContent
         let! birthCountContent = tryDownloadBirthCountCoutent birthCountContentUri
-        return! tryParseBirthCountContent birthCountContent
+        let! result = tryParseBirthCountContent birthCountContent
+        let (BirthCount bc) = result
+        return result
     }
 
+/// 指定された年の誕生数を取得。既に取得済みの場合はそれを返す
 let tryGetBirthCount yearContentUri yearContent cache year =
     result {
         match cache |> Map.tryFind year with
@@ -88,6 +105,7 @@ let tryGetBirthCount yearContentUri yearContent cache year =
             return result, cache |> Map.add year result
     }
 
+/// 年度ごとの誕生数を取得
 let tryGetBirthCountOfAcademicYear yearContentUri yearContent cache (academicYear : int<年度>) =
     result {
         let firstYear = academicYear * 1<年/年度>
@@ -99,17 +117,19 @@ let tryGetBirthCountOfAcademicYear yearContentUri yearContent cache (academicYea
         return result, cache
     }
 
+/// 複数年の誕生数を日ごとに合計する
 let sumBirthCounts birthCounts =
     let add2BirthCounts (BirthCount birthCounts1) (BirthCount birthCounts2) =
         (birthCounts1, birthCounts2) ||> Array.map2 (+) |> BirthCount
     birthCounts |> Seq.reduce add2BirthCounts
 
+/// 一様分布用の誕生数
 let uniformBirthCount = Array.replicate 365 1 |> BirthCount
 
+/// 指定された複数年の誕生数を日ごとに合計した誕生数を取得
 let tryGetAllBirthCounts yearContentUri yearContent years =
     let birthCountResults, cache =
         (Map.empty, years) ||> Seq.mapFold (fun cache year ->
-            printfn "%d年の処理" year
             match tryGetBirthCount yearContentUri yearContent cache year with
             | Success(result, cache) -> Success result, cache
             | Failure e -> Failure e, cache)

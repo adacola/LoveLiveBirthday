@@ -7,6 +7,7 @@ let aqours1stGradeYear = 2003<年度>
 let aqours2ndGradeYear = 2002<年度>
 let aqours3rdGradeYear = 2001<年度>
 
+/// ラブライブ！のキャラと中の人の誕生日をランダムに取得
 let getRandomBirthdays getμ'sActorBirthday getμ's1stGradeBirthday getμ's2ndGradeBirthday getμ's3rdGradeBirthday getAqoursActorBirthday getAqours1stGradeBirthday getAqours2ndGradeBirthday getAqours3rdGradeBirthday random =
     let getCharacterBirthdays allBirthdays random getBirthdayFuncs =
         ((allBirthdays, random), getBirthdayFuncs) ||> Seq.fold (fun (allBirthdays, random) getBirthdayFunc ->
