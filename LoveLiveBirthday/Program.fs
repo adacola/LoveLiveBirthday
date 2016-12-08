@@ -14,30 +14,29 @@ with
     interface IArgParserTemplate with
         member x.Usage: string = 
             match x with
-            | Trial(_) -> "試行回数。省略時は1000"
+            | Trial(_) -> "試行回数。省略時は100000"
             | Uniform -> "誕生日が選ばれる確率分布が一様分布とするモードで実行。省略時は出生数を元にした確率分布を使用"
             | Seed(_) -> "乱数のシード"
             | Url(_) -> "e-Statの「人口動態統計 確定数 保管統計表（報告書非掲載表） 出生」の年次一覧ページのURL"
 
+let defaultTrial = 100000
+let defaultUrl = "http://www.e-stat.go.jp/SG1/estat/GL08020102.do?_toGL08020102_&tclassID=000001041654&cycleCode=7&requestSender=estat"
+
 [<EntryPoint>]
 let main args =
-    let parser = ArgumentParser.Create<CliArguments>()
+    let parser = ArgumentParser.Create<CliArguments>(errorHandler = ProcessExiter())
     let parseResult = parser.Parse args
-    let trial = parseResult.GetResult(<@ Trial @>, 1000)
+    let trial = parseResult.GetResult(<@ Trial @>, defaultTrial)
     let isUniform = parseResult.Contains <@ Uniform @>
     let maybeSeed = parseResult.TryGetResult <@ Seed @>
-    let yearContentUri =
-        parseResult.TryGetResult <@ Url @>
-        |> Option.getOrElse (fun () -> "http://www.e-stat.go.jp/SG1/estat/GL08020102.do?_toGL08020102_&tclassID=000001041654&cycleCode=7&requestSender=estat")
-        |> Uri |> BirthCount.YearContentUri
+    let yearContentUri = parseResult.GetResult(<@ Url @>, defaultUrl) |> Uri |> BirthCount.YearContentUri
 
     let random = maybeSeed |> Option.map Random.mersenneTwisterSeed |> Option.getOrElse Random.mersenneTwister
     let getBirthday lazyYearContent cache year =
         result {
+            if isUniform then return Birthday.getRandomBirthday BirthCount.uniformBirthCount, cache else
             let! yearContent = lazyYearContent |> Lazy.value
-            let! birthCount, cache =
-                if isUniform then Success(BirthCount.uniformBirthCount, cache)
-                else BirthCount.tryGetBirthCountOfAcademicYear yearContentUri yearContent cache year
+            let! birthCount, cache = BirthCount.tryGetBirthCountOfAcademicYear yearContentUri yearContent cache year
             return Birthday.getRandomBirthday birthCount, cache
         }
     let getAllBirthCount lazyYearContent allYears =
@@ -70,8 +69,10 @@ let main args =
     match func with
     | Success f ->
         let result = (random, seq { 1 .. trial }) ||> Seq.mapFold (fun random _ -> f random) |> fst |> Seq.countBy id
-        printfn "%d 回実行した結果:" trial
-        result |> Seq.sortBy fst |> Seq.iter ((<||) (printfn "かぶり%02d人 : %d回"))
+        printfn "\n%d 回実行した結果:" trial
+        result |> Seq.sortBy fst |> Seq.iter (fun (duplicatedCount, count) ->
+            let ratio = float count / float trial * 100.
+            printfn "かぶり%02d人 : %d回 (%.3f%%)" duplicatedCount count ratio)
         System.Console.ReadLine() |> ignore
         0
     | Failure e -> raise e
